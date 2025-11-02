@@ -22,12 +22,17 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Run BRICS bot (single iteration)
         env:
@@ -37,4 +42,6 @@ jobs:
           BRICS_TOKEN: ${{ secrets.BRICS_TOKEN }}
           BOT_ADDRESS: ${{ secrets.BOT_ADDRESS }}
           DRY_RUN: ${{ secrets.DRY_RUN }}
-        run: node bricsBot.js
+        run: |
+          echo "Running BRICS bot at $(date)"
+          node bricsBot.js
