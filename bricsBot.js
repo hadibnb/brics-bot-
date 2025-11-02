@@ -1,6 +1,7 @@
 // bricsBot.js
 // Single-run bot suitable for cron (GitHub Actions). Use DRY_RUN=true for dry mode.
 
+console.log("🚀 BRICS bot started...");
 const Web3 = require('web3');
 const fs = require('fs');
 
