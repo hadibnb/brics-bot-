@@ -1,0 +1,26 @@
+name: BRICS Trade Bot
+
+on:
+  schedule:
+    - cron: '*/1 * * * *' # اجرا هر ۱ دقیقه
+  workflow_dispatch: # امکان اجرای دستی
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    env:
+      BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
+      BOT_ADDRESS: ${{ secrets.BOT_ADDRESS }}
+      MAIN_ADDRESS: ${{ secrets.MAIN_ADDRESS }}
+      BRICS_TOKEN: ${{ secrets.BRICS_TOKEN }}
+      DRY_RUN: 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: npm install
+      - name: Run trade bot
+        run: node tradeWorker.js
