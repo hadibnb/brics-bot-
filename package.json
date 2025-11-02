@@ -1,0 +1,11 @@
+{
+  "name": "brics-bot",
+  "version": "1.0.0",
+  "main": "tradeWorker.js",
+  "scripts": {
+    "start": "node tradeWorker.js"
+  },
+  "dependencies": {
+    "web3": "^1.10.0"
+  }
+}
