@@ -1,9 +1,9 @@
-name: BRICS Auto Trader Bot
+name: BRICS Auto Trader
 
 on:
-  workflow_dispatch:   # اجرای دستی
+  workflow_dispatch:
   schedule:
-    - cron: "*/5 * * * *"   # هر 5 دقیقه یک بار (برای تست)
+    - cron: "*/5 * * * *"  # هر 5 دقیقه اجرا (میشه بعداً کوتاه‌تر کرد)
 
 jobs:
   trade:
@@ -16,16 +16,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: 18
 
       - name: Install dependencies
-        run: npm install
+        run: npm install web3 fs
 
-      - name: Run BRICS Bot
+      - name: Run BRICS bot
         env:
+          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
           PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          RPC_URL: ${{ secrets.RPC_URL }}
-          MAIN_WALLET: "0x67594e1d30cec8a5f906c8278a1bc694641486cf"
-          BOT_WALLET: "0xba5aee794d7ea8ed6d256fd12d3c5c9b77805289"
-          TOKEN_CONTRACT: "0xAF2009350F6ECBE22c23A505a590239c7aaA3037"
-        run: node bot.js
+          MAIN_WALLET: ${{ secrets.MAIN_WALLET }}
+          BRICS_TOKEN: ${{ secrets.BRICS_TOKEN }}
+          BOT_ADDRESS: ${{ secrets.BOT_ADDRESS }}
+        run: node bricsBot.js
