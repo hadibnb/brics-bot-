@@ -1,24 +1,22 @@
 # BRICS Trading Bot
 
-## Quick start (deploy to Render)
+Quick start:
+1. Create repo and push files.
+2. Add these secrets in GitHub (Repository -> Settings -> Secrets):
+   - BSC_RPC_URL
+   - PRIVATE_KEY (only for LIVE; don't put if DRY_RUN)
+   - MAIN_WALLET
+   - BRICS_TOKEN
+   - BOT_ADDRESS
+   - DRY_RUN (true/false)
 
-1. Create a GitHub repo and push these files.
-2. On Render, create a new **Web Service** (or Background Worker):
-   - Environment: `Node`
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-3. Add Environment Variables (Render -> Service -> Environment):
-   - BSC_RPC_URL (e.g. https://bsc-dataseed.binance.org)
-   - BOT_ADDRESS (0xba5aee7...)
-   - MAIN_ADDRESS (0x67594e1...)
-   - BRICS_TOKEN (0xAF20...)
-   - DRY_RUN=true (initially)
-   - BOT_PRIVATE_KEY (only when ready to go LIVE) — **secret**
-   - Optional: adjust other CONFIG via env variables
-4. Deploy. Check Logs for outputs.
-5. After satisfactory testing (logs show expected DRY_RUN messages), set `DRY_RUN=false`, add `BOT_PRIVATE_KEY` and redeploy.
+3. Workflow will run every 5 minutes (or run manually via "Actions").
 
-## Safety & Testing
-- Always test on testnet or with DRY_RUN first.
-- Keep BOT_PRIVATE_KEY secret.
-- Use `stop.flag` file to stop the bot immediately (create it in repo or via Render console).
+Local / Render:
+- `npm ci`
+- `npm start` (runs a single iteration; schedule repeats it externally)
+
+**SAFETY**
+- Test with `DRY_RUN=true` or on testnet first.
+- Keep `PRIVATE_KEY` secret.
+- Create file `stop.flag` in repo root or runner to stop quickly.
