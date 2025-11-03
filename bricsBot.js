@@ -1,10 +1,9 @@
-// bricsBot.js (optimized for GitHub Actions - single run)
+// bricsBot.js (clean version)
 console.log("🚀 BRICS bot (GitHub Actions) started...");
 
 const Web3 = require("web3");
 const fs = require("fs");
 
-// === CONFIG / ENV ===
 const RPC_URL = process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org";
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
 const MAIN_WALLET = process.env.MAIN_WALLET || "";
@@ -22,7 +21,7 @@ if (!RPC_URL || !BRICS_TOKEN || !MAIN_WALLET || !BOT_ADDRESS) {
 
 const web3 = new Web3(new Web3.providers.HttpProvider(RPC_URL));
 
-// account
+// Load private key if not in dry mode
 if (!PRIVATE_KEY && !DRY_RUN) {
   console.error("❌ PRIVATE_KEY missing and DRY_RUN=false");
   process.exit(1);
@@ -45,7 +44,6 @@ const routerAbi = JSON.parse(fs.readFileSync("./routerABI.json", "utf8"));
 const router = new web3.eth.Contract(routerAbi, ROUTER_ADDRESS);
 const brics = new web3.eth.Contract(erc20Abi, BRICS_TOKEN);
 
-// === FUNCTIONS ===
 async function getBalances() {
   const bnb = await web3.eth.getBalance(account);
   const brx = await brics.methods.balanceOf(account).call();
@@ -66,6 +64,51 @@ async function execute() {
     return;
   }
 
+  const action = brx < 1 ? "BUY" : "SELL";
+  const deadline = Math.floor(Date.now() / 1000) + 120;
+  const pathBuy = [WBNB_ADDRESS, BRICS_TOKEN];
+  const pathSell = [BRICS_TOKEN, WBNB_ADDRESS];
+
+  if (action === "BUY") {
+    const amountBNB = web3.utils.toWei("0.001", "ether");
+    console.log(`🟢 BUY mode | amount: ${web3.utils.fromWei(amountBNB)} BNB | DRY_RUN=${DRY_RUN}`);
+
+    if (!DRY_RUN) {
+      const tx = router.methods.swapExactETHForTokensSupportingFeeOnTransferTokens(
+        0, pathBuy, account, deadline
+      ).send({ from: account, value: amountBNB, gas: 400000 });
+      const receipt = await tx;
+      console.log(`✅ BUY tx hash: ${receipt.transactionHash}`);
+    } else {
+      console.log("💡 DRY_RUN active - simulated BUY");
+    }
+  } else {
+    console.log("🔴 SELL mode | DRY_RUN=" + DRY_RUN);
+    if (brx < 0.5) {
+      console.log("📉 Not enough BRICS to sell.");
+      return;
+    }
+
+    const amountSell = web3.utils.toWei(brx.toString(), "ether");
+    if (!DRY_RUN) {
+      await brics.methods.approve(ROUTER_ADDRESS, amountSell).send({ from: account, gas: 100000 });
+      const tx = router.methods.swapExactTokensForETHSupportingFeeOnTransferTokens(
+        amountSell, 0, pathSell, account, deadline
+      ).send({ from: account, gas: 400000 });
+      const receipt = await tx;
+      console.log(`✅ SELL tx hash: ${receipt.transactionHash}`);
+    } else {
+      console.log("💡 DRY_RUN active - simulated SELL");
+    }
+  }
+}
+
+execute()
+  .then(() => console.log("✅ Cycle completed."))
+  .catch((e) => {
+    console.error("❌ Error:", e.message || e);
+  })
+  .finally(() => process.exit(0));
   // decide based on BRICS/BNB ratio instead of pure random
   const action = brx < 1 ? "BUY" : "SELL";
   const deadline = Math.floor(Date.now() / 1000) + 120;
