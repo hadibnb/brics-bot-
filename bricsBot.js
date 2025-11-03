@@ -1,39 +1,132 @@
-// bricsBot.js (clean version)
-console.log("🚀 BRICS bot (GitHub Actions) started...");
+// bricsBot.js
+import Web3 from "web3";
+import fs from "fs";
 
-const Web3 = require("web3");
-const fs = require("fs");
+const {
+  BSC_RPC_URL,
+  PRIVATE_KEY,
+  MAIN_WALLET,
+  BRICS_TOKEN,
+  BOT_ADDRESS,
+  DRY_RUN,
+} = process.env;
 
-const RPC_URL = process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org";
-const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
-const MAIN_WALLET = process.env.MAIN_WALLET || "";
-const BRICS_TOKEN = process.env.BRICS_TOKEN || "";
-const BOT_ADDRESS = process.env.BOT_ADDRESS || "";
-const DRY_RUN = (process.env.DRY_RUN === "true");
-
-const ROUTER_ADDRESS = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
-const WBNB_ADDRESS = "0xBB4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
-
-if (!RPC_URL || !BRICS_TOKEN || !MAIN_WALLET || !BOT_ADDRESS) {
-  console.error("❌ Missing required env vars. Check BSC_RPC_URL, BRICS_TOKEN, MAIN_WALLET, BOT_ADDRESS");
+if (!BSC_RPC_URL || !PRIVATE_KEY || !MAIN_WALLET || !BRICS_TOKEN || !BOT_ADDRESS) {
+  console.error("❌ Missing environment variables. Check your GitHub Secrets.");
   process.exit(1);
 }
 
-const web3 = new Web3(new Web3.providers.HttpProvider(RPC_URL));
+const web3 = new Web3(BSC_RPC_URL);
+const account = web3.eth.accounts.wallet.add(PRIVATE_KEY);
+const routerAddress = "0x10ED43C718714eb63d5aA57B78B54704E256024E"; // PancakeSwap V2 Router
+const tokenAddress = BRICS_TOKEN;
+const mainWallet = MAIN_WALLET;
+const dryRun = (DRY_RUN || "false").toLowerCase() === "true";
 
-// Load private key if not in dry mode
-if (!PRIVATE_KEY && !DRY_RUN) {
-  console.error("❌ PRIVATE_KEY missing and DRY_RUN=false");
-  process.exit(1);
+// ✅ توابع کمکی
+async function getBNBBalance() {
+  const balance = await web3.eth.getBalance(mainWallet);
+  return web3.utils.fromWei(balance, "ether");
 }
 
-if (PRIVATE_KEY) {
+async function getTokenBalance() {
+  const abi = JSON.parse(fs.readFileSync("./abi.json", "utf8"));
+  const token = new web3.eth.Contract(abi, tokenAddress);
+  const bal = await token.methods.balanceOf(mainWallet).call();
+  return web3.utils.fromWei(bal, "ether");
+}
+
+// ✅ شبیه‌سازی ترید
+async function tradeOnce() {
   try {
-    web3.eth.accounts.wallet.add(PRIVATE_KEY.startsWith("0x") ? PRIVATE_KEY : `0x${PRIVATE_KEY}`);
+    const bnbBal = await getBNBBalance();
+    const brxBal = await getTokenBalance();
+
+    console.log(`💰 BNB: ${bnbBal} | BRICS: ${brxBal}`);
+
+    if (bnbBal < 0.002) {
+      console.log("⚠️ Not enough BNB for gas.");
+      return Promise.resolve();
+    }
+
+    const action = Math.random() > 0.5 ? "BUY" : "SELL";
+    console.log(`🎯 Action chosen: ${action}`);
+
+    if (dryRun) {
+      console.log(`🧪 Dry run mode - would ${action}.`);
+      return Promise.resolve();
+    }
+
+    const routerABI = JSON.parse(fs.readFileSync("./routerABI.json", "utf8"));
+    const router = new web3.eth.Contract(routerABI, routerAddress);
+    const deadline = Math.floor(Date.now() / 1000) + 60 * 5;
+
+    if (action === "BUY") {
+      const buyAmount = web3.utils.toWei("0.001", "ether");
+      const tx = router.methods.swapExactETHForTokensSupportingFeeOnTransferTokens(
+        0,
+        [web3.utils.toChecksumAddress("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"), tokenAddress],
+        mainWallet,
+        deadline
+      );
+
+      const gas = await tx.estimateGas({ from: mainWallet, value: buyAmount });
+      const data = tx.encodeABI();
+      const txData = {
+        from: mainWallet,
+        to: routerAddress,
+        data,
+        value: buyAmount,
+        gas,
+      };
+
+      const signedTx = await web3.eth.accounts.signTransaction(txData, PRIVATE_KEY);
+      const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      console.log("✅ BUY completed:", receipt.transactionHash);
+    } else {
+      const sellAmount = web3.utils.toWei("1", "ether"); // adjust to balance later
+      const tokenABI = JSON.parse(fs.readFileSync("./abi.json", "utf8"));
+      const token = new web3.eth.Contract(tokenABI, tokenAddress);
+
+      await token.methods.approve(routerAddress, sellAmount).send({ from: mainWallet });
+      const tx = router.methods.swapExactTokensForETHSupportingFeeOnTransferTokens(
+        sellAmount,
+        0,
+        [tokenAddress, web3.utils.toChecksumAddress("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")],
+        mainWallet,
+        deadline
+      );
+
+      const gas = await tx.estimateGas({ from: mainWallet });
+      const data = tx.encodeABI();
+      const txData = {
+        from: mainWallet,
+        to: routerAddress,
+        data,
+        gas,
+      };
+
+      const signedTx = await web3.eth.accounts.signTransaction(txData, PRIVATE_KEY);
+      const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      console.log("✅ SELL completed:", receipt.transactionHash);
+    }
   } catch (err) {
-    console.error("⚠️ Failed to add private key:", err.message);
-    process.exit(1);
+    console.error("❌ Error in tradeOnce:", err.message || err);
+    return Promise.resolve();
   }
+}
+
+// ✅ اجرای اصلی
+async function execute() {
+  console.log(`🚀 Running BRICS bot at ${new Date().toISOString()}`);
+  await tradeOnce();
+  console.log("✅ Cycle finished successfully.");
+}
+
+execute()
+  .then(() => console.log("🎯 Execution complete."))
+  .catch((e) => console.error("❌ Error in execution:", e.message || e))
+  .finally(() => process.exit(0));
 }
 
 const account = web3.eth.accounts.wallet.length > 0 ? web3.eth.accounts.wallet[0].address : BOT_ADDRESS;
