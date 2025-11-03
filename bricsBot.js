@@ -1,9 +1,8 @@
-// bricsBot.js
-// Single-run bot suitable for cron (GitHub Actions). Use DRY_RUN=true for dry mode.
+// bricsBot.js (optimized for GitHub Actions - single run)
+console.log("🚀 BRICS bot (GitHub Actions) started...");
 
-console.log("🚀 BRICS bot started...");
-const Web3 = require('web3');
-const fs = require('fs');
+const Web3 = require("web3");
+const fs = require("fs");
 
 // === CONFIG / ENV ===
 const RPC_URL = process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org";
@@ -13,27 +12,104 @@ const BRICS_TOKEN = process.env.BRICS_TOKEN || "";
 const BOT_ADDRESS = process.env.BOT_ADDRESS || "";
 const DRY_RUN = (process.env.DRY_RUN === "true");
 
-// Pancake router & WBNB
 const ROUTER_ADDRESS = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
-const WBNB_ADDRESS  = "0xBB4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
+const WBNB_ADDRESS = "0xBB4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
 
-// basic validation
 if (!RPC_URL || !BRICS_TOKEN || !MAIN_WALLET || !BOT_ADDRESS) {
-  console.error("Missing required env variables. Ensure BSC_RPC_URL, BRICS_TOKEN, MAIN_WALLET and BOT_ADDRESS are set.");
+  console.error("❌ Missing required env vars. Check BSC_RPC_URL, BRICS_TOKEN, MAIN_WALLET, BOT_ADDRESS");
   process.exit(1);
 }
 
 const web3 = new Web3(new Web3.providers.HttpProvider(RPC_URL));
 
-// add account (do not log private key)
+// account
 if (!PRIVATE_KEY && !DRY_RUN) {
-  console.error("PRIVATE_KEY is required unless DRY_RUN=true");
+  console.error("❌ PRIVATE_KEY missing and DRY_RUN=false");
   process.exit(1);
 }
+
 if (PRIVATE_KEY) {
   try {
-    web3.eth.accounts.wallet.add(PRIVATE_KEY.startsWith('0x') ? PRIVATE_KEY : `0x${PRIVATE_KEY}`);
+    web3.eth.accounts.wallet.add(PRIVATE_KEY.startsWith("0x") ? PRIVATE_KEY : `0x${PRIVATE_KEY}`);
   } catch (err) {
+    console.error("⚠️ Failed to add private key:", err.message);
+    process.exit(1);
+  }
+}
+
+const account = web3.eth.accounts.wallet.length > 0 ? web3.eth.accounts.wallet[0].address : BOT_ADDRESS;
+console.log(`👤 Active address: ${account}`);
+
+const erc20Abi = JSON.parse(fs.readFileSync("./erc20abi.json", "utf8"));
+const routerAbi = JSON.parse(fs.readFileSync("./routerABI.json", "utf8"));
+const router = new web3.eth.Contract(routerAbi, ROUTER_ADDRESS);
+const brics = new web3.eth.Contract(erc20Abi, BRICS_TOKEN);
+
+// === FUNCTIONS ===
+async function getBalances() {
+  const bnb = await web3.eth.getBalance(account);
+  const brx = await brics.methods.balanceOf(account).call();
+  return {
+    bnb: parseFloat(web3.utils.fromWei(bnb, "ether")),
+    brx: parseFloat(web3.utils.fromWei(brx, "ether")),
+  };
+}
+
+async function execute() {
+  console.log("🔁 Starting trade cycle...");
+
+  const { bnb, brx } = await getBalances();
+  console.log(`💰 Balances | BNB: ${bnb.toFixed(6)} | BRICS: ${brx.toFixed(2)}`);
+
+  if (bnb < 0.002) {
+    console.log("⚠️ Insufficient gas balance (<0.002 BNB). Skipping.");
+    return;
+  }
+
+  // decide based on BRICS/BNB ratio instead of pure random
+  const action = brx < 1 ? "BUY" : "SELL";
+  const deadline = Math.floor(Date.now() / 1000) + 120;
+  const pathBuy = [WBNB_ADDRESS, BRICS_TOKEN];
+  const pathSell = [BRICS_TOKEN, WBNB_ADDRESS];
+
+  if (action === "BUY") {
+    const amountBNB = web3.utils.toWei("0.001", "ether");
+    console.log(`🟢 BUY mode | amount: ${web3.utils.fromWei(amountBNB)} BNB | DRY_RUN=${DRY_RUN}`);
+
+    if (!DRY_RUN) {
+      const tx = router.methods.swapExactETHForTokensSupportingFeeOnTransferTokens(
+        0, pathBuy, account, deadline
+      ).send({ from: account, value: amountBNB, gas: 400000 });
+      const receipt = await tx;
+      console.log(`✅ BUY tx hash: ${receipt.transactionHash}`);
+    } else {
+      console.log("💡 DRY_RUN active - simulated BUY");
+    }
+  } else {
+    console.log("🔴 SELL mode | DRY_RUN=" + DRY_RUN);
+    if (brx < 0.5) {
+      console.log("📉 Not enough BRICS to sell.");
+      return;
+    }
+
+    const amountSell = web3.utils.toWei(brx.toString(), "ether");
+    if (!DRY_RUN) {
+      await brics.methods.approve(ROUTER_ADDRESS, amountSell).send({ from: account, gas: 100000 });
+      const tx = router.methods.swapExactTokensForETHSupportingFeeOnTransferTokens(
+        amountSell, 0, pathSell, account, deadline
+      ).send({ from: account, gas: 400000 });
+      const receipt = await tx;
+      console.log(`✅ SELL tx hash: ${receipt.transactionHash}`);
+    } else {
+      console.log("💡 DRY_RUN active - simulated SELL");
+    }
+  }
+}
+
+execute()
+  .then(() => console.log("✅ Cycle completed."))
+  .catch(e => console.error("❌ Error:", e.message || e))
+  .finally(() => process.exit(0));
     console.error("Failed to add private key to wallet:", err.message);
     process.exit(1);
   }
