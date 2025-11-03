@@ -107,13 +107,13 @@ async function execute() {
 }
 
 execute()
+execute()
   .then(() => console.log("✅ Cycle completed."))
-  .catch(e => console.error("❌ Error:", e.message || e))
+  .catch((e) => {
+    console.error("❌ Error:", e.message || e);
+  })
   .finally(() => process.exit(0));
-    console.error("Failed to add private key to wallet:", err.message);
-    process.exit(1);
-  }
-}
+
 const accountAddress = web3.eth.accounts.wallet.length > 0 ? web3.eth.accounts.wallet[0].address : BOT_ADDRESS;
 
 // load ABIs
