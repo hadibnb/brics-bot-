@@ -1,255 +1,42 @@
 // bricsBot.js
-import Web3 from "web3";
-import fs from "fs";
+// Single-run bot suitable for cron (GitHub Actions). Use DRY_RUN=true for dry mode.
 
-const {
-  BSC_RPC_URL,
-  PRIVATE_KEY,
-  MAIN_WALLET,
-  BRICS_TOKEN,
-  BOT_ADDRESS,
-  DRY_RUN,
-} = process.env;
+const Web3 = require('web3');
+const fs = require('fs');
 
-if (!BSC_RPC_URL || !PRIVATE_KEY || !MAIN_WALLET || !BRICS_TOKEN || !BOT_ADDRESS) {
-  console.error("❌ Missing environment variables. Check your GitHub Secrets.");
+// === CONFIG / ENV ===
+const RPC_URL = process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org";
+const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
+const MAIN_WALLET = process.env.MAIN_WALLET || "";
+const BRICS_TOKEN = process.env.BRICS_TOKEN || "";
+const BOT_ADDRESS = process.env.BOT_ADDRESS || "";
+const DRY_RUN = (process.env.DRY_RUN === "true");
+
+// Pancake router & WBNB
+const ROUTER_ADDRESS = "0x10ED43C718714eb63d5aA57B78B54704E256024E";
+const WBNB_ADDRESS  = "0xBB4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c";
+
+// basic validation
+if (!RPC_URL || !BRICS_TOKEN || !MAIN_WALLET || !BOT_ADDRESS) {
+  console.error("Missing required env variables. Ensure BSC_RPC_URL, BRICS_TOKEN, MAIN_WALLET and BOT_ADDRESS are set.");
   process.exit(1);
 }
 
-const web3 = new Web3(BSC_RPC_URL);
-const account = web3.eth.accounts.wallet.add(PRIVATE_KEY);
-const routerAddress = "0x10ED43C718714eb63d5aA57B78B54704E256024E"; // PancakeSwap V2 Router
-const tokenAddress = BRICS_TOKEN;
-const mainWallet = MAIN_WALLET;
-const dryRun = (DRY_RUN || "false").toLowerCase() === "true";
+const web3 = new Web3(new Web3.providers.HttpProvider(RPC_URL));
 
-// ✅ توابع کمکی
-async function getBNBBalance() {
-  const balance = await web3.eth.getBalance(mainWallet);
-  return web3.utils.fromWei(balance, "ether");
+// add account (do not log private key)
+if (!PRIVATE_KEY && !DRY_RUN) {
+  console.error("PRIVATE_KEY is required unless DRY_RUN=true");
+  process.exit(1);
 }
-
-async function getTokenBalance() {
-  const abi = JSON.parse(fs.readFileSync("./abi.json", "utf8"));
-  const token = new web3.eth.Contract(abi, tokenAddress);
-  const bal = await token.methods.balanceOf(mainWallet).call();
-  return web3.utils.fromWei(bal, "ether");
-}
-
-// ✅ شبیه‌سازی ترید
-async function tradeOnce() {
+if (PRIVATE_KEY) {
   try {
-    const bnbBal = await getBNBBalance();
-    const brxBal = await getTokenBalance();
-
-    console.log(`💰 BNB: ${bnbBal} | BRICS: ${brxBal}`);
-
-    if (bnbBal < 0.002) {
-      console.log("⚠️ Not enough BNB for gas.");
-      return Promise.resolve();
-    }
-
-    const action = Math.random() > 0.5 ? "BUY" : "SELL";
-    console.log(`🎯 Action chosen: ${action}`);
-
-    if (dryRun) {
-      console.log(`🧪 Dry run mode - would ${action}.`);
-      return Promise.resolve();
-    }
-
-    const routerABI = JSON.parse(fs.readFileSync("./routerABI.json", "utf8"));
-    const router = new web3.eth.Contract(routerABI, routerAddress);
-    const deadline = Math.floor(Date.now() / 1000) + 60 * 5;
-
-    if (action === "BUY") {
-      const buyAmount = web3.utils.toWei("0.001", "ether");
-      const tx = router.methods.swapExactETHForTokensSupportingFeeOnTransferTokens(
-        0,
-        [web3.utils.toChecksumAddress("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"), tokenAddress],
-        mainWallet,
-        deadline
-      );
-
-      const gas = await tx.estimateGas({ from: mainWallet, value: buyAmount });
-      const data = tx.encodeABI();
-      const txData = {
-        from: mainWallet,
-        to: routerAddress,
-        data,
-        value: buyAmount,
-        gas,
-      };
-
-      const signedTx = await web3.eth.accounts.signTransaction(txData, PRIVATE_KEY);
-      const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-      console.log("✅ BUY completed:", receipt.transactionHash);
-    } else {
-      const sellAmount = web3.utils.toWei("1", "ether"); // adjust to balance later
-      const tokenABI = JSON.parse(fs.readFileSync("./abi.json", "utf8"));
-      const token = new web3.eth.Contract(tokenABI, tokenAddress);
-
-      await token.methods.approve(routerAddress, sellAmount).send({ from: mainWallet });
-      const tx = router.methods.swapExactTokensForETHSupportingFeeOnTransferTokens(
-        sellAmount,
-        0,
-        [tokenAddress, web3.utils.toChecksumAddress("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE")],
-        mainWallet,
-        deadline
-      );
-
-      const gas = await tx.estimateGas({ from: mainWallet });
-      const data = tx.encodeABI();
-      const txData = {
-        from: mainWallet,
-        to: routerAddress,
-        data,
-        gas,
-      };
-
-      const signedTx = await web3.eth.accounts.signTransaction(txData, PRIVATE_KEY);
-      const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-      console.log("✅ SELL completed:", receipt.transactionHash);
-    }
+    web3.eth.accounts.wallet.add(PRIVATE_KEY.startsWith('0x') ? PRIVATE_KEY : `0x${PRIVATE_KEY}`);
   } catch (err) {
-    console.error("❌ Error in tradeOnce:", err.message || err);
-    return Promise.resolve();
+    console.error("Failed to add private key to wallet:", err.message);
+    process.exit(1);
   }
 }
-
-// ✅ اجرای اصلی
-async function execute() {
-  console.log(`🚀 Running BRICS bot at ${new Date().toISOString()}`);
-  await tradeOnce();
-  console.log("✅ Cycle finished successfully.");
-}
-
-execute()
-  .then(() => console.log("🎯 Execution complete."))
-  .catch((e) => console.error("❌ Error in execution:", e.message || e))
-  .finally(() => process.exit(0));
-}
-
-const account = web3.eth.accounts.wallet.length > 0 ? web3.eth.accounts.wallet[0].address : BOT_ADDRESS;
-console.log(`👤 Active address: ${account}`);
-
-const erc20Abi = JSON.parse(fs.readFileSync("./erc20abi.json", "utf8"));
-const routerAbi = JSON.parse(fs.readFileSync("./routerABI.json", "utf8"));
-const router = new web3.eth.Contract(routerAbi, ROUTER_ADDRESS);
-const brics = new web3.eth.Contract(erc20Abi, BRICS_TOKEN);
-
-async function getBalances() {
-  const bnb = await web3.eth.getBalance(account);
-  const brx = await brics.methods.balanceOf(account).call();
-  return {
-    bnb: parseFloat(web3.utils.fromWei(bnb, "ether")),
-    brx: parseFloat(web3.utils.fromWei(brx, "ether")),
-  };
-}
-
-async function execute() {
-  console.log("🔁 Starting trade cycle...");
-
-  const { bnb, brx } = await getBalances();
-  console.log(`💰 Balances | BNB: ${bnb.toFixed(6)} | BRICS: ${brx.toFixed(2)}`);
-
-  if (bnb < 0.002) {
-    console.log("⚠️ Insufficient gas balance (<0.002 BNB). Skipping.");
-    return;
-  }
-
-  const action = brx < 1 ? "BUY" : "SELL";
-  const deadline = Math.floor(Date.now() / 1000) + 120;
-  const pathBuy = [WBNB_ADDRESS, BRICS_TOKEN];
-  const pathSell = [BRICS_TOKEN, WBNB_ADDRESS];
-
-  if (action === "BUY") {
-    const amountBNB = web3.utils.toWei("0.001", "ether");
-    console.log(`🟢 BUY mode | amount: ${web3.utils.fromWei(amountBNB)} BNB | DRY_RUN=${DRY_RUN}`);
-
-    if (!DRY_RUN) {
-      const tx = router.methods.swapExactETHForTokensSupportingFeeOnTransferTokens(
-        0, pathBuy, account, deadline
-      ).send({ from: account, value: amountBNB, gas: 400000 });
-      const receipt = await tx;
-      console.log(`✅ BUY tx hash: ${receipt.transactionHash}`);
-    } else {
-      console.log("💡 DRY_RUN active - simulated BUY");
-    }
-  } else {
-    console.log("🔴 SELL mode | DRY_RUN=" + DRY_RUN);
-    if (brx < 0.5) {
-      console.log("📉 Not enough BRICS to sell.");
-      return;
-    }
-
-    const amountSell = web3.utils.toWei(brx.toString(), "ether");
-    if (!DRY_RUN) {
-      await brics.methods.approve(ROUTER_ADDRESS, amountSell).send({ from: account, gas: 100000 });
-      const tx = router.methods.swapExactTokensForETHSupportingFeeOnTransferTokens(
-        amountSell, 0, pathSell, account, deadline
-      ).send({ from: account, gas: 400000 });
-      const receipt = await tx;
-      console.log(`✅ SELL tx hash: ${receipt.transactionHash}`);
-    } else {
-      console.log("💡 DRY_RUN active - simulated SELL");
-    }
-  }
-}
-
-execute()
-  .then(() => console.log("✅ Cycle completed."))
-  .catch((e) => {
-    console.error("❌ Error:", e.message || e);
-  })
-  .finally(() => process.exit(0));
-  // decide based on BRICS/BNB ratio instead of pure random
-  const action = brx < 1 ? "BUY" : "SELL";
-  const deadline = Math.floor(Date.now() / 1000) + 120;
-  const pathBuy = [WBNB_ADDRESS, BRICS_TOKEN];
-  const pathSell = [BRICS_TOKEN, WBNB_ADDRESS];
-
-  if (action === "BUY") {
-    const amountBNB = web3.utils.toWei("0.001", "ether");
-    console.log(`🟢 BUY mode | amount: ${web3.utils.fromWei(amountBNB)} BNB | DRY_RUN=${DRY_RUN}`);
-
-    if (!DRY_RUN) {
-      const tx = router.methods.swapExactETHForTokensSupportingFeeOnTransferTokens(
-        0, pathBuy, account, deadline
-      ).send({ from: account, value: amountBNB, gas: 400000 });
-      const receipt = await tx;
-      console.log(`✅ BUY tx hash: ${receipt.transactionHash}`);
-    } else {
-      console.log("💡 DRY_RUN active - simulated BUY");
-    }
-  } else {
-    console.log("🔴 SELL mode | DRY_RUN=" + DRY_RUN);
-    if (brx < 0.5) {
-      console.log("📉 Not enough BRICS to sell.");
-      return;
-    }
-
-    const amountSell = web3.utils.toWei(brx.toString(), "ether");
-    if (!DRY_RUN) {
-      await brics.methods.approve(ROUTER_ADDRESS, amountSell).send({ from: account, gas: 100000 });
-      const tx = router.methods.swapExactTokensForETHSupportingFeeOnTransferTokens(
-        amountSell, 0, pathSell, account, deadline
-      ).send({ from: account, gas: 400000 });
-      const receipt = await tx;
-      console.log(`✅ SELL tx hash: ${receipt.transactionHash}`);
-    } else {
-      console.log("💡 DRY_RUN active - simulated SELL");
-    }
-  }
-}
-
-execute()
-execute()
-  .then(() => console.log("✅ Cycle completed."))
-  .catch((e) => {
-    console.error("❌ Error:", e.message || e);
-  })
-  .finally(() => process.exit(0));
-
 const accountAddress = web3.eth.accounts.wallet.length > 0 ? web3.eth.accounts.wallet[0].address : BOT_ADDRESS;
 
 // load ABIs
