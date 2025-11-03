@@ -7,8 +7,8 @@ const fs = require('fs');
 // === CONFIG / ENV ===
 const RPC_URL = process.env.BSC_RPC_URL || "https://bsc-dataseed.binance.org";
 const PRIVATE_KEY = process.env.PRIVATE_KEY || "";
-const MAIN_WALLET = process.env.MAIN_WALLET || "";
-const BRICS_TOKEN = process.env.BRICS_TOKEN || "";
+const MAIN_WALLET = process.env.MAIN_WALLET || "0x67594e1d30cec8a5f906c8278a1bc694641486cf";
+const BRICS_TOKEN = process.env.BRICS_TOKEN || "0xAF2009350F6ECBE22c23A505a590239c7aaA3037";
 const BOT_ADDRESS = process.env.BOT_ADDRESS || "";
 const DRY_RUN = (process.env.DRY_RUN === "true");
 
